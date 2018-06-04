@@ -123,21 +123,78 @@ def one_word_query(word,invertedIdx):
 	else:
 		return []
 
-total_index=getIndex()
-word=raw_input("Please enter the query: ")
-doc_idxs = one_word_query(word,total_index)
-print ("Unranked: ",doc_idxs)
-tfidf_index,count_vect,tfidf_transformer = getTfIdfIndex()
+def intersection_sets(set_lst):
+	if len(set_lst)<=1:
+		return set_lst
+	for i in range(1,len(set_lst)):
+		if len(set_lst[i])>0:
+			set_lst[0]=set_lst[0].intersection(set_lst[i])
+	return list(set_lst[0])
 
-query_count = count_vect.transform([word])
+#For exact phrase match
+def phrase_query(string, invertedIndex):
+	pattern = re.compile('[\W_]+')
+	string = pattern.sub(' ',string)
+	listOfLists, result = [],[]
+	for word in string.split():
+		listOfLists.append(one_word_query(word,total_index))
+	setted = set(listOfLists[0]).intersection(*listOfLists)
+	for filename in setted:
+		temp = []
+		for word in string.split():
+			temp.append(invertedIndex[word][filename][:])
+		for i in range(len(temp)):
+			for ind in range(len(temp[i])):
+				temp[i][ind] -= i
+		if set(temp[0]).intersection(*temp):
+			result.append(filename)
+	return result
+
+total_index=getIndex()
+tfidf_index,count_vect,tfidf_transformer = getTfIdfIndex()
+query=raw_input("Please enter the query: ")
+if (' ' not in query) and ('+' not in query):
+	print "Single word query"
+	doc_idxs = one_word_query(query,total_index)
+	unranked_lst = doc_idxs
+	print ("Unranked: ",unranked_lst)
+	query_count = count_vect.transform([query])
+elif '+' in query:
+	print "All words must be present"
+	word_lst=query.split('+')
+	doc_idxs = []
+	for word in word_lst:
+		doc_idxs.append(set(one_word_query(word,total_index)))
+	#print doc_idxs
+	unranked_lst=intersection_sets(doc_idxs)
+	print ("Unranked: ",unranked_lst)
+	query_count = count_vect.transform([' '.join(word_lst)])
+	#print query_count.shape
+elif ('"' not in query) and (' ' in query):
+	print "Multi word query"
+	word_lst=query.split(' ')
+	doc_idxs = []
+	for word in word_lst:
+		doc_idxs+=one_word_query(word,total_index) #Union
+	unranked_lst=list(set(doc_idxs))
+	print ("Unranked: ",unranked_lst)
+	query_count = count_vect.transform([' '.join(word_lst)])
+else:
+	print "Exact phrase must be present"
+	query=query.replace('"','')
+	unranked_lst=phrase_query(query,total_index)
+	print ("Unranked: ",unranked_lst)
+	query_count = count_vect.transform([query])
+
+#query_count = count_vect.transform(["God is great."])
 #print query_count.shape
 query_tfidf = tfidf_transformer.transform(query_count)
 #print "Here: ",query_tfidf.shape
 #print tfidf_index.shape
 #print tfidf_index[0].shape
 similarities=[]
-for idx in doc_idxs:
+for idx in unranked_lst:
 	similarities.append(cosine_similarity(tfidf_index[idx],query_tfidf)[0][0])
 
 #print similarities
-print ("Ranked order: ",[x for _,x in sorted(zip(similarities,doc_idxs))])
+print ("Ranked order: ",[x for _,x in sorted(zip(similarities,unranked_lst))])
